@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER = 'C:\\Users\\Expat-Electronic\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin\\docker.exe'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                echo 'Récupération du code / vérification de l\'environnement...'
+                bat '"%DOCKER%" --version'
+            }
+        }
+
+        stage('Build / Preparation') {
+            steps {
+                echo 'Préparation de l\'application cible (OWASP Juice Shop)...'
+                bat '"%DOCKER%" start juice-shop || "%DOCKER%" run -d -p 3000:3000 --name juice-shop bkimminich/juice-shop'
+                bat 'ping -n 15 127.0.0.1 > nul'
+            }
+        }
+
+        stage('Security Analysis - SCA (Trivy)') {
+            steps {
+                echo 'Analyse des dépendances et de l\'image Docker avec Trivy...'
+                bat '"%DOCKER%" run --rm -v "%WORKSPACE%:/reports" aquasec/trivy image --format json --output /reports/trivy-report.json bkimminich/juice-shop || exit 0'
+            }
+        }
+
+        stage('Additional Security Check - DAST (OWASP ZAP)') {
+            steps {
+                echo 'Analyse dynamique de l\'application en fonctionnement avec OWASP ZAP...'
+                bat '"%DOCKER%" run --rm -v "%WORKSPACE%:/zap/wrk/:rw" -t zaproxy/zap-stable zap-baseline.py -t http://host.docker.internal:3000 -r zap-report.html || exit 0'
+            }
+        }
+
+        stage('Report Generation') {
+            steps {
+                echo 'Consolidation des rapports générés...'
+                archiveArtifacts artifacts: '**/*report*.*', allowEmptyArchive: true
+            }
+        }
+
+        stage('Notification') {
+            steps {
+                echo 'Pipeline terminé : notification envoyée à l\'équipe (email / Slack simulé).'
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Fin du pipeline de sécurité.'
+        }
+    }
+}
